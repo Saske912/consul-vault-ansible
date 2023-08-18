@@ -49,12 +49,6 @@
       local_action: copy content="{{ consul_key.stdout }}" dest=./consul_key.txt
       when: inventory_hostname == groups['all'][0]
 
-    - name: Copy Consul encryption key from local file to remote hosts
-      copy:
-        src: ./consul_key.txt
-        dest: /tmp/consul_key.txt
-      when: inventory_hostname != groups['all'][0]
-
     - name: Read Consul encryption key from local file
       slurp:
         src: ./consul_key.txt
@@ -69,17 +63,29 @@
     #     group: root
     #     mode: 0644
 
-    - name: Generate Consul TLS CA
-      shell: consul tls ca create
+    - name: Create Consul keys directory
+      file:
+        path: /etc/consul.d/server/keys
+        recurse: true
+        state: directory
+        owner: consul
+        group: consul
+
+    - name: Generate Consul TLS CA on the first host
+      shell: consul tls ca create -days=5000 -domain {{ item }}
       args:
         chdir: /etc/consul.d/server/keys
-        when: inventory_hostname == groups['all'][0]
+      loop: "{{ groups['all'] }}"
+      when: inventory_hostname == groups['all'][0]
 
-    # - name: Generate Consul server TLS certificate
-    #   shell: consul tls cert create -server -dc dc1 -domain "{{ inventory_hostname }}"
-    #   args:
-    #     chdir: /etc/consul.d/server/keys
-    #     when: inventory_hostname == groups['all'][0]
+    - name: Generate Consul server TLS certificates
+      shell: consul tls cert create -days=3650 -server -dc dc{{ loop_index }} -domain {{ item }}
+      args:
+        chdir: /etc/consul.d/server/keys
+      loop: "{{ groups['all'] }}"
+      loop_control:
+        index_var: loop_index
+      when: inventory_hostname == groups['all'][0]
 
     # - name: Copy Consul key to configuration
     #   lineinfile:
