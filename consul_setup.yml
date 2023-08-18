@@ -1,0 +1,94 @@
+---
+- name: Install and configure Consul
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Copy Consul binary
+      copy:
+        src: binaries/consul_1.16.1_linux_amd64.zip
+        dest: /tmp/consul.zip
+
+    - name: Install unzip
+      ansible.builtin.apt:
+        name: unzip
+        state: present
+
+    - name: Unzip Consul
+      unarchive:
+        src: /tmp/consul.zip
+        dest: /usr/local/bin
+        remote_src: yes
+
+    - name: Create Consul group
+      group:
+        name: consul
+        state: present
+
+    - name: Create Consul user
+      user:
+        name: consul
+        group: consul
+        shell: /bin/nologin
+        home: /nonexistent
+        system: yes
+
+    - name: Create Consul data directory
+      file:
+        path: /var/consul
+        state: directory
+        owner: consul
+        group: consul
+
+    - name: Generate Consul encryption key on the first host
+      shell: consul keygen
+      register: consul_key
+      when: inventory_hostname == groups['all'][0]
+
+    - name: Save Consul encryption key to a local file
+      local_action: copy content="{{ consul_key.stdout }}" dest=./consul_key.txt
+      when: inventory_hostname == groups['all'][0]
+
+    - name: Copy Consul encryption key from local file to remote hosts
+      copy:
+        src: ./consul_key.txt
+        dest: /tmp/consul_key.txt
+      when: inventory_hostname != groups['all'][0]
+
+    - name: Read Consul encryption key from local file
+      slurp:
+        src: ./consul_key.txt
+      register: key_file_content
+      when: inventory_hostname != groups['all'][0]
+
+    # - name: Copy Consul configuration files
+    #   copy:
+    #     src: /path/to/consul_configs
+    #     dest: /etc/consul.d
+    #     owner: root
+    #     group: root
+    #     mode: 0644
+
+    - name: Generate Consul TLS CA
+      shell: consul tls ca create
+      args:
+        chdir: /etc/consul.d/server/keys
+        when: inventory_hostname == groups['all'][0]
+
+    # - name: Generate Consul server TLS certificate
+    #   shell: consul tls cert create -server -dc dc1 -domain "{{ inventory_hostname }}"
+    #   args:
+    #     chdir: /etc/consul.d/server/keys
+    #     when: inventory_hostname == groups['all'][0]
+
+    # - name: Copy Consul key to configuration
+    #   lineinfile:
+    #     path: /etc/consul.d/server/consul.hcl
+    #     line: 'encrypt = "{{ consul_key.stdout }}"'
+    #   when: consul_key.changed
+
+    # - name: Start Consul service
+    #   systemd:
+    #     name: consul
+    #     state: started
+    #     enabled: yes
