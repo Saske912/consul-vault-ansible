@@ -5,9 +5,9 @@ Vagrant.configure("2") do |config|
   
 	(1..3).each do |i|
 	  config.vm.define "host#{i}" do |node|
-		node.vm.hostname = "host#{i}"
+		node.vm.hostname = "facecast#{i}"
 		node.vm.provider "virtualbox" do |vb|
-		  vb.name = "host#{i}"
+		  vb.name = "facecast#{i}"
 		  vb.memory = 1024
 		  vb.cpus = 1
 		end

@@ -57,14 +57,6 @@
       register: key_file_content
       when: inventory_hostname != groups['all'][0]
 
-    # - name: Copy Consul configuration files
-    #   copy:
-    #     src: /path/to/consul_configs
-    #     dest: /etc/consul.d
-    #     owner: root
-    #     group: root
-    #     mode: 0644
-
     - name: Create Consul keys directory
       file:
         path: /etc/consul.d/server/keys
@@ -73,34 +65,78 @@
         owner: consul
         group: consul
 
-    # - name: Generate Consul TLS CA on the first host
-    #   shell: consul tls ca create -days=5000 -domain {{ inventory_hostname }}
-    #   args:
-    #     chdir: /etc/consul.d/server/keys
-    #   when: inventory_hostname == groups['all'][0]
+    - name: Check if .pem files exist
+      find:
+        paths: "/etc/consul.d/server/keys/"
+        patterns: "*.pem"
+      register: pem_files
+      delegate_to: "{{ groups['all'][0] }}"
+      when: inventory_hostname == groups['all'][0]
 
-    # - name: Generate Consul server TLS certificates
-    #   shell: >
-    #     consul tls cert create -days=3650 -server -dc dc{{ loop_index }} -domain {{ inventory_hostname }} {{ additional_dnsnames_args }}
-    #   args:
-    #     chdir: /etc/consul.d/server/keys
-    #   vars:
-    #     additional_dnsnames_args: "{% for dnsname in additional_dnsnames %}-additional-dnsname={{ dnsname }} {% endfor %}"
-    #   loop: "{{ groups['all'] }}"
+    - name: Generate Consul TLS CA on the first host
+      shell: consul tls ca create -days=5000 -domain {{ inventory_hostname }}
+      args:
+        chdir: /etc/consul.d/server/keys
+      when: inventory_hostname == groups['all'][0] and pem_files.matched == 0
+
+    - name: Generate Consul server TLS certificates
+      shell: >
+        consul tls cert create -days=3650 -server -dc dc{{ loop_index }} -domain {{ inventory_hostname }} {{ additional_dnsnames_args }}
+      args:
+        chdir: /etc/consul.d/server/keys
+      vars:
+        additional_dnsnames_args: "{% for dnsname in additional_dnsnames %}-additional-dnsname={{ dnsname }} {% endfor %}"
+      loop: "{{ groups['all'] }}"
+      loop_control:
+        index_var: loop_index
+      when: inventory_hostname == groups['all'][0] and pem_files.matched == 0
+
+    # - name: Copy certificates to respective servers
+    #   synchronize:
+    #     src: "/etc/consul.d/server/keys/"
+    #     dest: "/etc/consul.d/server/keys/"
+    #     # rsync_opts: "--exclude '*.pem'"
+    #   delegate_to: "{{ item }}"
+    #   loop: "{{ groups['all'][1:] }}" # Пропускаем первый хост
     #   loop_control:
-    #     index_var: loop_index
-    #   when: inventory_hostname == groups['all'][0]
+    #     loop_var: item
+    #   when: inventory_hostname != groups['all'][0]
 
-    - name: Copy certificates to respective servers
-      synchronize:
+    - name: Change ownership and permissions of .pem files
+      ansible.builtin.file:
+        path: /etc/consul.d/server/keys/
+        recurse: yes
+        owner: consul
+        group: consul
+        mode: "0640"
+      delegate_to: "{{ groups['all'][0] }}"
+      when: inventory_hostname == groups['all'][0]
+
+    - name: Copy certificates to local machine
+      become: true
+      copy:
         src: "/etc/consul.d/server/keys/"
+        dest: "keys"
+      delegate_to: localhost
+      run_once: true
+      when: inventory_hostname == groups['all'][0]
+
+    - name: Copy certificates from local machine to remote hosts
+      copy:
+        src: "keys/"
         dest: "/etc/consul.d/server/keys/"
-        # rsync_opts: "--exclude '*.pem'"
-      delegate_to: "{{ item }}"
       loop: "{{ groups['all'][1:] }}" # Пропускаем первый хост
       loop_control:
         loop_var: item
       when: inventory_hostname != groups['all'][0]
+
+    # - name: Copy Consul configuration files
+    #   copy:
+    #     src: /path/to/consul_configs
+    #     dest: /etc/consul.d
+    #     owner: root
+    #     group: root
+    #     mode: 0644
 
     # - name: Copy Consul key to configuration
     #   lineinfile:
