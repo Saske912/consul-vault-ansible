@@ -2,6 +2,8 @@
 - name: Install and configure Consul
   hosts: all
   become: true
+  vars:
+    additional_dnsnames: "{{ groups['all'][1:] }}"
 
   tasks:
     - name: Copy Consul binary
@@ -71,21 +73,34 @@
         owner: consul
         group: consul
 
-    - name: Generate Consul TLS CA on the first host
-      shell: consul tls ca create -days=5000 -domain {{ item }}
-      args:
-        chdir: /etc/consul.d/server/keys
-      loop: "{{ groups['all'] }}"
-      when: inventory_hostname == groups['all'][0]
+    # - name: Generate Consul TLS CA on the first host
+    #   shell: consul tls ca create -days=5000 -domain {{ inventory_hostname }}
+    #   args:
+    #     chdir: /etc/consul.d/server/keys
+    #   when: inventory_hostname == groups['all'][0]
 
-    - name: Generate Consul server TLS certificates
-      shell: consul tls cert create -days=3650 -server -dc dc{{ loop_index }} -domain {{ item }}
-      args:
-        chdir: /etc/consul.d/server/keys
-      loop: "{{ groups['all'] }}"
+    # - name: Generate Consul server TLS certificates
+    #   shell: >
+    #     consul tls cert create -days=3650 -server -dc dc{{ loop_index }} -domain {{ inventory_hostname }} {{ additional_dnsnames_args }}
+    #   args:
+    #     chdir: /etc/consul.d/server/keys
+    #   vars:
+    #     additional_dnsnames_args: "{% for dnsname in additional_dnsnames %}-additional-dnsname={{ dnsname }} {% endfor %}"
+    #   loop: "{{ groups['all'] }}"
+    #   loop_control:
+    #     index_var: loop_index
+    #   when: inventory_hostname == groups['all'][0]
+
+    - name: Copy certificates to respective servers
+      synchronize:
+        src: "/etc/consul.d/server/keys/"
+        dest: "/etc/consul.d/server/keys/"
+        # rsync_opts: "--exclude '*.pem'"
+      delegate_to: "{{ item }}"
+      loop: "{{ groups['all'][1:] }}" # Пропускаем первый хост
       loop_control:
-        index_var: loop_index
-      when: inventory_hostname == groups['all'][0]
+        loop_var: item
+      when: inventory_hostname != groups['all'][0]
 
     # - name: Copy Consul key to configuration
     #   lineinfile:

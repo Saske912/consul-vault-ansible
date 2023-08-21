@@ -1,6 +1,7 @@
 Vagrant.configure("2") do |config|
 	config.vm.box = "ubuntu/bionic64"
 	config.vm.network "private_network", type: "dhcp", virtualbox__intnet: true
+	config.vm.provision "hostmanager"
   
 	(1..3).each do |i|
 	  config.vm.define "host#{i}" do |node|
@@ -13,6 +14,7 @@ Vagrant.configure("2") do |config|
   
 		node.vm.provision "ansible_local" do |ansible|
 		  ansible.playbook = "consul_setup.yml"
+		  ansible.verbose = "vv"
 		end
 	  end
 	end
